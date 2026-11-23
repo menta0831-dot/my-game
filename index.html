@@ -1,0 +1,768 @@
+
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#101827">
+<title>BLOCK BREAKER - Prototype</title>
+<style>
+:root{color-scheme:dark;--bg:#101827;--panel:#172338;--line:#2b3b55;--text:#eef4ff;--muted:#9aabc4;--accent:#62d6ff}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at 50% 0%,#203653 0,#101827 48%,#0b1220 100%);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh;display:flex;justify-content:center}
+main{width:min(100%,520px);padding:14px 12px 22px;display:flex;flex-direction:column;gap:10px}
+header{display:flex;align-items:center;justify-content:space-between;padding:4px 2px}
+.logo{font-weight:900;letter-spacing:.12em;font-size:17px}.logo span{color:var(--accent)}
+.pill{font-size:11px;color:#b9c9df;border:1px solid #3a4d68;border-radius:999px;padding:5px 9px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:7px}
+.stat{background:#172338;border:1px solid #2b3b55;border-radius:12px;padding:9px 7px}
+.stat small{display:block;color:var(--muted);font-size:10px;letter-spacing:.08em}.stat strong{font-size:16px;font-variant-numeric:tabular-nums}
+.game-wrap{background:#111d30;border:1px solid #30435f;border-radius:18px;padding:8px;box-shadow:0 16px 40px #0005}
+canvas{display:block;width:100%;height:auto;border-radius:12px;touch-action:none;background:#0c1627}
+.controls{display:flex;gap:8px;align-items:center}
+button{border:0;border-radius:12px;padding:12px 14px;background:#263750;color:#e8f1ff;border:1px solid #3b506d;font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap}
+button:disabled{opacity:.4;cursor:not-allowed}
+.hint{flex:1;color:var(--muted);font-size:11px;line-height:1.5}
+.message{background:#172338;border:1px solid #2b3b55;border-radius:12px;padding:10px 12px;font-size:12px;color:#c6d5e9;line-height:1.55;min-height:42px}
+.overlay{position:fixed;inset:0;background:#07101dcc;display:none;align-items:center;justify-content:center;padding:24px;z-index:5}
+.overlay.show{display:flex}
+.modal{width:min(100%,360px);background:#192941;border:1px solid #48617f;border-radius:18px;padding:22px;text-align:center;box-shadow:0 20px 60px #0009}
+.modal h2{margin:0 0 8px}.modal p{color:#b6c7dd;font-size:13px;line-height:1.6}
+.shop-items{display:grid;gap:9px;margin:16px 0}
+.shop-item{display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;background:#213550;border:1px solid #405977;border-radius:12px;padding:11px}
+.shop-item b{display:block;font-size:13px}.shop-item small{display:block;color:#b6c7dd;font-size:11px;margin-top:3px}
+.shop-item button{padding:9px 11px}
+.shop-item.locked{opacity:.55}
+.bar{height:9px;background:#263750;border-radius:99px;overflow:hidden;margin-top:5px}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#62d6ff,#b18cff)}
+@media(max-width:380px){.stats{gap:4px}.stat{padding:8px 4px}.stat small{font-size:9px}.stat strong{font-size:14px}}
+@media(min-width:600px){main{padding-top:22px}}
+</style>
+</head>
+<body>
+<main>
+<header><div class="logo">BLOCK <span>BREAKER</span></div><div class="pill">PLAYABLE PROTOTYPE v1.8</div></header>
+
+<section class="stats">
+  <div class="stat"><small>TURN</small><strong id="turn">1</strong></div>
+  <div class="stat"><small>SCORE</small><strong id="score">0</strong></div>
+  <div class="stat"><small>BALLS</small><strong id="balls">1</strong></div>
+  <div class="stat"><small>MONEY</small><strong id="money">0</strong></div>
+  <div class="stat"><small>BROKEN</small><strong id="broken">0</strong></div>
+</section>
+
+<div class="game-wrap"><canvas id="game" width="420" height="700"></canvas></div>
+
+<div class="controls">
+  <div class="hint" id="hint">画面をドラッグして照準。指を離すと発射。</div>
+  <button id="shopOpen">ショップ</button>
+  <button id="speedToggle" aria-pressed="false">速度 x1</button>
+  <button id="restart">リセット</button>
+</div>
+
+<div class="message" id="message">照準をドラッグして、指を離すと発射します。発射をやめたい場合は画面の下枠より十分下まで引いてください。</div>
+<div class="message" id="skillHud">エリアブレイク <span id="skillPct">0%</span> <button id="skillUse" disabled>発動（1回限り）</button><div class="bar"><i id="skillBar"></i></div></div>
+</main>
+
+<div class="overlay" id="shopOverlay">
+<div class="modal">
+<h2>SHOP</h2>
+<p>所持金 <b id="shopMoney">0</b> G</p>
+<div class="shop-items">
+
+<div class="shop-item" id="normalItem">
+ <div><b>通常ボール +1</b><small>通常のボールを1個追加</small></div>
+ <button id="buyNormal">5 G</button>
+</div>
+
+<div class="shop-item locked" id="heavyItem">
+ <div><b>強化ボール +1</b><small id="heavyDesc">5ターン突破で解放・耐久値2ダメージ</small></div>
+ <button id="buyHeavy">未解放</button>
+</div>
+
+<div class="shop-item locked" id="splashItem">
+ <div><b>範囲ボール +1</b><small id="splashDesc">10ターン突破で解放・周囲8マスに2ダメージ</small></div>
+ <button id="buySplash">未解放</button>
+</div>
+
+<div class="shop-item locked" id="rookItem">
+ <div><b>飛車ボール +1</b><small id="rookDesc">10ターン突破で解放・同じ縦列と横列に2ダメージ</small></div>
+ <button id="buyRook">未解放</button>
+</div>
+
+<div class="shop-item locked" id="purpleItem">
+ <div><b>強化範囲ボール +1</b><small id="purpleDesc">20ターン突破で解放・直撃と同じ縦横列に各1ダメージ</small></div>
+ <button id="buyPurple">未解放</button>
+</div>
+
+<div class="shop-item locked" id="blackItem">
+ <div><b>全体攻撃ボール +1</b><small id="blackDesc">25ターン突破で解放・全ブロックに1ダメージ</small></div>
+ <button id="buyBlack">未解放</button>
+</div>
+
+</div>
+<button id="shopContinue">閉じる</button>
+</div>
+</div>
+
+<div class="overlay" id="overlay">
+<div class="modal"><h2>GAME OVER</h2><p id="result"></p><button id="again">もう一度プレイ</button></div>
+</div>
+
+<script>
+(()=>{
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+const W=420,H=700,cols=8,cell=46,gap=5,gridX=21,gridY=48,rows=10;
+const launcherY=638,dangerY=gridY+rows*(cell+gap)+4;
+const $=id=>document.getElementById(id);
+
+let blocks=[],balls=[],turn=1,ballInventory=['normal'],ballCount=1;
+let broken=0,money=0,score=0,skillCharge=0,skillUsed=false;
+let originX=W/2,aimX=W/2,aimY=250;
+let turnQueue=[];
+let aiming=false,aimMoved=false,pointerStartX=0,pointerStartY=0;
+let started=false,gameOver=false,launchQueue=0,launchTimer=0,active=0,returnX=null;
+let last=0,raf=0,speedMultiplier=1,blockDropOffset=0,blockDropAnimating=false;
+let effects=[];
+let turnBonusMessage='';
+
+const colors=['#46c7f2','#5b9ee8','#7888e8','#a18ae5','#c07cbd','#e28b8b','#f0ad65','#f2d477'];
+
+function rand(a,b){return Math.floor(Math.random()*(b-a+1))+a}
+
+function newBlockRow(minCount,maxCount){
+ if(minCount===undefined||maxCount===undefined){
+  if(turn<=5){minCount=1;maxCount=2}
+  else if(turn<=10){minCount=2;maxCount=3}
+  else if(turn<=15){minCount=3;maxCount=4}
+  else if(turn<=20){minCount=3;maxCount=4}
+  else{minCount=5;maxCount=6}
+ }
+ const count=rand(minCount,maxCount),chosen=new Set();
+ while(chosen.size<count)chosen.add(rand(0,cols-1));
+ const arr=[];
+ const tier=Math.floor((turn-1)/3);
+
+ let hpBonus;
+ if(tier<=9){
+  hpBonus=tier===0?0:(4*tier+(tier*(tier-1))/2);
+ }else{
+  const extraTier=tier-9;
+  hpBonus=72+15*extraTier+3*extraTier*(extraTier-1);
+ }
+
+ for(let c=0;c<cols;c++){
+  if(chosen.has(c)){
+   const hp=1+hpBonus+rand(0,1);
+   arr.push({c,hp,max:hp});
+  }else arr.push(null);
+ }
+ return arr;
+}
+
+function init(){
+ blocks=[];balls=[];effects=[];
+ blockDropOffset=0;blockDropAnimating=false;
+ turn=1;ballInventory=['normal'];ballCount=1;
+ broken=0;money=0;score=0;skillCharge=0;skillUsed=false;
+ originX=W/2;speedMultiplier=1;
+ turnBonusMessage='';
+ $('speedToggle').textContent='速度 x1';
+ $('speedToggle').setAttribute('aria-pressed','false');
+ started=false;gameOver=false;launchQueue=0;active=0;returnX=null;
+ aiming=false;aimMoved=false;
+ for(let r=0;r<4;r++){
+  const row=newBlockRow(1,2);
+  row.forEach((b,c)=>{if(b){b.r=r;blocks.push(b)}});
+ }
+ $('overlay').classList.remove('show');
+ $('shopOverlay').classList.remove('show');
+ $('message').textContent='照準をドラッグして、指を離すと発射します。発射をやめたい場合は画面の下枠より十分下まで引いてください。';
+ updateUI();draw();updateSkillUI();
+}
+
+function updateUI(){
+ ballCount=ballInventory.length;
+ $('turn').textContent=turn;
+ $('score').textContent=score.toLocaleString('ja-JP');
+ $('balls').textContent=ballCount;
+ $('money').textContent=money;
+ $('broken').textContent=broken;
+ $('hint').textContent=started?'球が飛行中。最初に戻った球の位置が次の発射地点になる。':'ドラッグして照準を決め、指を離すと発射。下枠より十分下へ引くとキャンセル。';
+ $('shopOpen').disabled=started||gameOver||blockDropAnimating;
+ $('skillUse').disabled=skillUsed||skillCharge<100||gameOver;
+ $('skillUse').textContent=skillUsed?'使用済み':'発動（1回限り）';
+}
+
+function cellRect(b){
+ return{x:gridX+b.c*(cell+gap),y:gridY+b.r*(cell+gap)+blockDropOffset,w:cell,h:cell};
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+  ctx.fillStyle='#17263b';
+  ctx.fillRect(gridX+c*(cell+gap),gridY+r*(cell+gap),cell,cell);
+ }
+ ctx.save();
+ ctx.setLineDash([7,6]);ctx.strokeStyle='#ff647c';ctx.lineWidth=2;
+ ctx.beginPath();ctx.moveTo(12,dangerY);ctx.lineTo(W-12,dangerY);ctx.stroke();
+ ctx.restore();
+ ctx.fillStyle='#ff8192';ctx.font='10px system-ui';ctx.fillText('DANGER LINE',14,dangerY-7);
+
+ for(const b of blocks){
+  const q=cellRect(b);
+  const t=Math.min(colors.length-1,Math.floor((b.hp-1)/6));
+  ctx.fillStyle=colors[t];
+  roundRect(q.x,q.y,q.w,q.h,8);ctx.fill();
+  ctx.fillStyle='#071525';ctx.font='bold 17px system-ui';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(b.hp,q.x+q.w/2,q.y+q.h/2+1);
+ }
+
+ ctx.fillStyle='#334b69';roundRect(originX-19,launcherY+5,38,13,6);ctx.fill();
+ ctx.fillStyle='#75dcff';ctx.beginPath();ctx.arc(originX,launcherY,7,0,Math.PI*2);ctx.fill();
+
+ if(returnX!==null){
+  ctx.save();ctx.setLineDash([4,6]);ctx.strokeStyle='#ffd166';ctx.lineWidth=2;ctx.globalAlpha=.8;
+  ctx.beginPath();ctx.moveTo(returnX,launcherY-12);ctx.lineTo(returnX,launcherY+27);ctx.stroke();
+  ctx.setLineDash([]);ctx.strokeStyle='#ffd166';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(returnX,launcherY,13,0,Math.PI*2);ctx.stroke();
+  ctx.fillStyle='#ffd166';ctx.font='bold 11px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
+  const labelX=Math.max(55,Math.min(W-55,returnX));
+  ctx.fillText('NEXT LAUNCH',labelX,launcherY-19);ctx.restore();
+ }
+
+ if(!started&&!gameOver){
+  const aim=constrainAim(aimX-originX,aimY-launcherY);
+  let vx=aim.vx,vy=aim.vy;
+  ctx.save();ctx.setLineDash([5,7]);ctx.strokeStyle='#a9eaff';ctx.lineWidth=2;ctx.globalAlpha=.8;
+  let x=originX,y=launcherY,steps=0,reflections=0;
+  ctx.beginPath();ctx.moveTo(x,y);
+  while(steps<360&&y>gridY){
+   let nx=x+vx*5,ny=y+vy*5;
+   if(nx<8||nx>W-8){
+    if(reflections>=1)break;
+    x=Math.max(8,Math.min(W-8,nx));y=ny;ctx.lineTo(x,y);reflections++;
+    vx*=-1;
+   }else{x=nx;y=ny;ctx.lineTo(x,y)}
+   steps++;
+  }
+  ctx.stroke();ctx.restore();
+ }
+
+ for(const b of balls){
+  let ballColor='#ffffff';
+  if(b.type==='heavy')ballColor='#4da3ff';
+  if(b.type==='splash')ballColor='#ffd43b';
+  if(b.type==='rook')ballColor='#ff4545';
+  if(b.type==='black')ballColor='#151515';
+  if(b.type==='purple')ballColor='#b18cff';
+  ctx.beginPath();ctx.fillStyle=ballColor;ctx.shadowColor=ballColor;ctx.shadowBlur=12;
+  ctx.arc(b.x,b.y,5,0,Math.PI*2);ctx.fill();
+  if(b.type==='black'){ctx.strokeStyle='#ffffff';ctx.lineWidth=1;ctx.stroke()}
+  ctx.shadowBlur=0;
+ }
+
+ for(const e of effects){
+  const alpha=Math.max(0,e.life/e.maxLife);
+  ctx.save();ctx.globalAlpha=alpha;
+  ctx.fillStyle=e.color;
+  ctx.beginPath();ctx.arc(e.x,e.y,e.size*alpha,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+ }
+}
+
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r)}
+
+function pointerCanvasPosition(e){
+ const rect=canvas.getBoundingClientRect();
+ return{x:(e.clientX-rect.left)*W/rect.width,y:(e.clientY-rect.top)*H/rect.height,rect};
+}
+
+function aimFromPointer(e){
+ const p=pointerCanvasPosition(e);
+ aimX=Math.max(0,Math.min(W,p.x));
+ aimY=Math.min(p.y,launcherY-35);
+ draw();
+}
+
+canvas.addEventListener('pointerdown',e=>{
+ if(started||gameOver||blockDropAnimating)return;
+ aiming=true;aimMoved=false;pointerStartX=e.clientX;pointerStartY=e.clientY;
+ try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+ aimFromPointer(e);
+});
+
+canvas.addEventListener('pointermove',e=>{
+ if(aiming){
+  if(Math.hypot(e.clientX-pointerStartX,e.clientY-pointerStartY)>8)aimMoved=true;
+  aimFromPointer(e);
+ }
+});
+
+canvas.addEventListener('pointerup',e=>{
+ if(!aiming)return;
+ const rect=canvas.getBoundingClientRect();
+ const cancelled=e.clientY>rect.bottom+42;
+ aiming=false;
+ if(cancelled){
+  $('message').textContent='発射をキャンセルしたよ。もう一度ドラッグして照準を決めよう。';
+  draw();return;
+ }
+ if(aimMoved)fire();else draw();
+});
+
+canvas.addEventListener('pointercancel',()=>{
+ aiming=false;draw();
+});
+
+function constrainAim(dx,dy){
+ let l=Math.hypot(dx,dy);
+ if(l<25){dx=0;dy=-1;l=1}
+ let vx=dx/l,vy=dy/l;
+ if(vy>-.16){vy=-.16;vx=Math.sign(vx||1)*Math.sqrt(1-vy*vy)}
+ if(Math.abs(vx)>0.0001){
+  const wallDist=vx>0?(W-8-originX):(originX-8);
+  const minUpSlope=(launcherY-(dangerY-8))/Math.max(1,wallDist);
+  const currentUpSlope=(-vy)/Math.abs(vx);
+  if(currentUpSlope<minUpSlope){
+   const sign=Math.sign(vx)||1;
+   vx=sign/Math.sqrt(1+minUpSlope*minUpSlope);
+   vy=-minUpSlope/Math.sqrt(1+minUpSlope*minUpSlope);
+  }
+ }
+ return{vx,vy};
+}
+
+function fire(){
+ if(started||gameOver||blockDropAnimating)return;
+ const {vx,vy}=constrainAim(aimX-originX,aimY-launcherY);
+ const speed=5.2;
+ started=true;turnQueue=[...ballInventory];
+ launchQueue=turnQueue.length;launchTimer=0;balls=[];active=0;returnX=null;
+ window._shot={vx:vx*speed,vy:vy*speed};
+ $('message').textContent='発射中！最初に戻った球の着地点が、次の発射地点として表示されるよ。';
+ updateUI();last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);
+}
+
+function launchOne(){
+ const v=window._shot;
+ const type=turnQueue.shift()||'normal';
+ balls.push({
+  x:originX,y:launcherY-8,
+  vx:v.vx,vy:v.vy,
+  returning:false,type,
+  returnSpeed:1,
+  noHitTime:0,
+  maxSpeedTime:0,
+  returningHome:false
+ });
+ active++;launchQueue--;
+}
+
+function updateSkillUI(){
+ $('skillPct').textContent=skillCharge.toFixed(2)+'%';
+ $('skillBar').style.width=Math.min(100,skillCharge)+'%';
+ $('skillUse').disabled=skillUsed||skillCharge<100||gameOver;
+ $('skillUse').textContent=skillUsed?'使用済み':'発動（1回限り）';
+}
+
+function addSkillCharge(){
+ // 直接ヒット1回につき0.08%加算。特殊球の範囲攻撃分は加算しない。
+ if(!skillUsed)skillCharge=Math.min(100,skillCharge+0.08);
+ updateSkillUI();
+}
+
+function useAreaBreak(){
+ if(skillUsed||skillCharge<100||gameOver)return;
+ skillUsed=true;
+ skillCharge=0;
+
+ // デッドライン付近の3行にあるブロックをすべて即座に破壊する。
+ const affected=blocks.filter(b=>
+  cellRect(b).y>=dangerY-3*(cell+gap)-cell
+ );
+
+ for(const b of [...affected]){
+  destroyBlock(b);
+ }
+
+ $('message').textContent='エリアブレイク発動！デッドライン付近3行のブロックをすべて消滅させた！このゲームでは再使用できない。';
+ updateUI();
+ updateSkillUI();
+ draw();
+}
+
+function destroyBlock(block){
+ const index=blocks.indexOf(block);
+ if(index===-1)return;
+ blocks.splice(index,1);
+ broken++;money+=5;score+=block.max*100;
+}
+
+function damageBlock(block,amount){
+ if(!blocks.includes(block))return;
+ block.hp-=amount;
+ if(block.hp<=0)destroyBlock(block);
+}
+
+function spawnEffect(x,y,color){
+ for(let i=0;i<14;i++){
+  const angle=Math.PI*2*i/14+Math.random()*.2;
+  const speed=rand(2,6);
+  effects.push({
+   x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
+   color,life:22,maxLife:22,size:rand(2,4)
+  });
+ }
+}
+
+function updateEffects(dt){
+ for(let i=effects.length-1;i>=0;i--){
+  const e=effects[i];
+  e.x+=e.vx*dt;e.y+=e.vy*dt;
+  e.life-=dt;
+  if(e.life<=0)effects.splice(i,1);
+ }
+}
+
+function openShop(){
+ if(started||gameOver||blockDropAnimating)return;
+
+ $('shopMoney').textContent=money;
+
+ const heavyUnlocked=turn>=6;
+ const splashRookUnlocked=turn>=11;
+ const blackUnlocked=turn>=26;
+ const purpleUnlocked=turn>=21;
+
+ setShopItem('heavy',heavyUnlocked,money>=15,'5ターン突破で解放・直撃ブロックに2ダメージ',15);
+ setShopItem('splash',splashRookUnlocked,money>=25,'10ターン突破で解放・周囲8マスに2ダメージ',25);
+ setShopItem('rook',splashRookUnlocked,money>=25,'10ターン突破で解放・同じ縦列と横列に2ダメージ',25);
+ setShopItem('black',blackUnlocked,money>=50,'25ターン突破で解放・全ブロックに1ダメージ',50);
+ setShopItem('purple',purpleUnlocked,money>=40,'20ターン突破で解放・直撃と同じ縦横列に各1ダメージ',40);
+
+ $('buyNormal').disabled=money<5;
+ $('shopOverlay').classList.add('show');
+}
+
+function setShopItem(name,unlocked,canAfford,description,price){
+ const item=$(name+'Item');
+ const button=$('buy'+name.charAt(0).toUpperCase()+name.slice(1));
+ const desc=$(name+'Desc');
+
+ item.classList.toggle('locked',!unlocked);
+ button.disabled=!unlocked||!canAfford;
+ button.textContent=unlocked?price+' G':'未解放';
+ desc.textContent=unlocked?
+  description.replace(/^\d+ターン突破で解放・/,''):
+  description;
+}
+
+function closeShop(){
+ $('shopOverlay').classList.remove('show');
+ $('message').textContent='ショップを閉じたよ。準備ができたら発射しよう。';
+ updateUI();draw();
+}
+
+function damageWithSpecial(ball,hitBlock){
+ const x=cellRect(hitBlock).x+cell/2;
+ const y=cellRect(hitBlock).y+cell/2;
+
+ if(ball.type==='splash'){
+  spawnEffect(x,y,'#ffd43b');
+  const targets=blocks.filter(other=>
+   Math.abs(other.c-hitBlock.c)<=1&&Math.abs(other.r-hitBlock.r)<=1
+  );
+  for(const target of [...targets])damageBlock(target,2);
+ }
+ else if(ball.type==='rook'){
+  spawnEffect(x,y,'#ff4545');
+  const targets=blocks.filter(other=>
+   other.c===hitBlock.c||other.r===hitBlock.r
+  );
+  for(const target of [...targets])damageBlock(target,2);
+ }
+ else if(ball.type==='black'){
+  spawnEffect(x,y,'#e8e8e8');
+  // 直撃したブロックは2ダメージ、それ以外のブロックは1ダメージ。
+  for(const target of [...blocks]){
+   damageBlock(target,target===hitBlock?2:1);
+  }
+ }
+ else if(ball.type==='purple'){
+  spawnEffect(x,y,'#b18cff');
+  damageBlock(hitBlock,1);
+  const targets=blocks.filter(other=>
+   other.c===hitBlock.c||other.r===hitBlock.r
+  );
+  for(const target of [...targets])damageBlock(target,1);
+ }
+ else if(ball.type==='heavy'){
+  spawnEffect(x,y,'#4da3ff');
+  damageBlock(hitBlock,2);
+ }
+ else{
+  damageBlock(hitBlock,1);
+ }
+}
+
+function circleTouchesRect(x,y,r,q){
+ const cx=Math.max(q.x,Math.min(x,q.x+q.w));
+ const cy=Math.max(q.y,Math.min(y,q.y+q.h));
+ const dx=x-cx,dy=y-cy;
+ return dx*dx+dy*dy<=(r*r);
+}
+
+function pathCanHitBlock(b){
+ if(blocks.length===0)return false;
+ const speed=Math.hypot(b.vx,b.vy);
+ if(speed<0.0001)return false;
+
+ let vx=b.vx/speed,vy=b.vy/speed;
+ let x=b.x,y=b.y;
+ const step=4;
+ const maxSteps=2500;
+
+ for(let i=0;i<maxSteps&&y<launcherY-3;i++){
+  x+=vx*step;y+=vy*step;
+
+  if(x<12){x=12;vx=Math.abs(vx)}
+  else if(x>W-12){x=W-12;vx=-Math.abs(vx)}
+
+  if(y<gridY-5){y=gridY-5;vy=Math.abs(vy)}
+
+  for(const block of blocks){
+   if(circleTouchesRect(x,y,5,cellRect(block)))return true;
+  }
+ }
+ return false;
+}
+
+function guideBallDownward(b,dt){
+ const speed=Math.hypot(b.vx,b.vy);
+ if(speed<0.001)return;
+
+ let angle=Math.atan2(b.vy,b.vx);
+ const target=Math.PI/2;
+ let diff=Math.atan2(Math.sin(target-angle),Math.cos(target-angle));
+ const maxTurn=0.022*dt;
+ const turn=Math.sign(diff)*Math.min(Math.abs(diff),maxTurn);
+ angle+=turn;
+
+ b.vx=Math.cos(angle)*speed;
+ b.vy=Math.sin(angle)*speed;
+}
+
+function collideBall(b){
+ const radius=5;
+ if(b.x<12){b.x=12;b.vx=Math.abs(b.vx)}
+ if(b.x>W-12){b.x=W-12;b.vx=-Math.abs(b.vx)}
+ const ceilingY=gridY-radius;
+ if(b.y<ceilingY){b.y=ceilingY;b.vy=Math.abs(b.vy)}
+
+ for(let i=blocks.length-1;i>=0;i--){
+  const hitBlock=blocks[i],q=cellRect(hitBlock);
+  const closestX=Math.max(q.x,Math.min(b.x,q.x+q.w));
+  const closestY=Math.max(q.y,Math.min(b.y,q.y+q.h));
+  let dx=b.x-closestX,dy=b.y-closestY;
+  let distSq=dx*dx+dy*dy;
+  if(distSq>=radius*radius)continue;
+
+  let nx=0,ny=0,penetration=0;
+  if(distSq>0.000001){
+   const dist=Math.sqrt(distSq);
+   nx=dx/dist;ny=dy/dist;
+   penetration=radius-dist;
+  }else{
+   const distances=[
+    {d:b.x-q.x,nx:-1,ny:0},
+    {d:q.x+q.w-b.x,nx:1,ny:0},
+    {d:b.y-q.y,nx:0,ny:-1},
+    {d:q.y+q.h-b.y,nx:0,ny:1}
+   ];
+   distances.sort((a,b)=>a.d-b.d);
+   const face=distances[0];
+   nx=face.nx;ny=face.ny;
+   penetration=radius+face.d;
+  }
+
+  b.x+=nx*(penetration+0.15);
+  b.y+=ny*(penetration+0.15);
+
+  const dot=b.vx*nx+b.vy*ny;
+  if(dot<0){
+   b.vx-=2*dot*nx;
+   b.vy-=2*dot*ny;
+  }
+
+  damageWithSpecial(b,hitBlock);
+  addSkillCharge();
+  break;
+ }
+}
+
+function finishTurn(){
+ started=false;
+ const clearedTurn=turn;
+ turn++;
+
+ if(clearedTurn===10||clearedTurn===20||(clearedTurn>=30&&clearedTurn%10===0)){
+  for(let i=0;i<2;i++)ballInventory.push('normal');
+  turnBonusMessage=`ターン${clearedTurn}突破ボーナス！通常ボールを2個獲得！`;
+ }else turnBonusMessage='';
+
+ blocks.forEach(b=>b.r++);
+ const row=newBlockRow();
+ row.forEach(b=>{if(b){b.r=0;blocks.push(b)}});
+ const dropDistance=cell+gap;
+ blockDropOffset=-dropDistance;
+ blockDropAnimating=true;
+ updateUI();updateSkillUI();
+
+ const startTime=performance.now(),duration=360;
+ function animateDrop(now){
+  const t=Math.min(1,(now-startTime)/duration);
+  const eased=1-Math.pow(1-t,3);
+  blockDropOffset=-dropDistance*(1-eased);
+  draw();
+  if(t<1){requestAnimationFrame(animateDrop);return}
+  blockDropOffset=0;blockDropAnimating=false;
+  if(blocks.some(b=>cellRect(b).y+cell>=dangerY-2)){endGame();return}
+  $('message').textContent=turnBonusMessage||'ブロックが1段下がった。次のターンを始めよう。';
+  updateUI();draw();
+ }
+ requestAnimationFrame(animateDrop);
+}
+
+function endGame(){
+ gameOver=true;started=false;
+ $('result').textContent=`${turn}ターン到達・ブロック破壊 ${broken}個・スコア ${score.toLocaleString('ja-JP')}点`;
+ $('overlay').classList.add('show');updateUI();draw();
+}
+
+function loop(now){
+ const dt=Math.min(2,(now-last)/16.67||1)*speedMultiplier;
+ last=now;
+
+ if(launchQueue>0){
+  launchTimer-=dt;
+  if(launchTimer<=0){launchOne();launchTimer=5}
+ }
+
+ for(let i=balls.length-1;i>=0;i--){
+  const b=balls[i];
+
+  if(!b.returningHome){
+   const canHit=pathCanHitBlock(b);
+
+   if(canHit){
+    b.noHitTime=0;
+    b.maxSpeedTime=0;
+    b.returnSpeed=Math.max(1,b.returnSpeed-0.08*dt);
+   }else{
+    b.noHitTime+=dt;
+
+    if(b.noHitTime>30){
+     b.returnSpeed=Math.min(3.2,b.returnSpeed+0.018*dt);
+    }
+
+    if(b.returnSpeed>=3.19){
+     b.maxSpeedTime+=dt;
+    }else{
+     b.maxSpeedTime=0;
+    }
+
+    if(b.maxSpeedTime>=120){
+     b.returningHome=true;
+    }
+   }
+  }
+
+  if(b.returningHome){
+   guideBallDownward(b,dt);
+  }
+
+  const movementDt=dt*b.returnSpeed;
+  const distance=Math.hypot(b.vx*movementDt,b.vy*movementDt);
+  const substeps=Math.max(1,Math.ceil(distance/2));
+  const subDt=movementDt/substeps;
+
+  for(let step=0;step<substeps;step++){
+   b.x+=b.vx*subDt;
+   b.y+=b.vy*subDt;
+   collideBall(b);
+   if(b.y>=launcherY-3&&b.vy>0)break;
+  }
+
+  if(b.y>=launcherY-3&&b.vy>0){
+   if(returnX===null){
+    returnX=Math.max(18,Math.min(W-18,b.x));
+    $('message').textContent='最初の球が帰還！黄色い「NEXT LAUNCH」の位置が次の発射地点になるよ。';
+   }
+   balls.splice(i,1);active--;
+  }
+ }
+
+ updateEffects(dt);
+
+ if(launchQueue===0&&balls.length===0&&active===0){
+  originX=returnX??originX;
+  balls=[];
+  finishTurn();
+  return;
+ }
+
+ draw();
+ if(started)raf=requestAnimationFrame(loop);
+}
+
+$('speedToggle').addEventListener('click',()=>{
+ speedMultiplier=speedMultiplier===1?2:1;
+ $('speedToggle').textContent=`速度 x${speedMultiplier}`;
+ $('speedToggle').setAttribute('aria-pressed',String(speedMultiplier===2));
+});
+
+$('buyNormal').addEventListener('click',()=>{
+ if(money<5)return;
+ money-=5;ballInventory.push('normal');updateUI();openShop();
+});
+
+$('buyHeavy').addEventListener('click',()=>{
+ if(turn<6||money<15)return;
+ money-=15;ballInventory.push('heavy');updateUI();openShop();
+});
+
+$('buySplash').addEventListener('click',()=>{
+ if(turn<11||money<25)return;
+ money-=25;ballInventory.push('splash');updateUI();openShop();
+});
+
+$('buyRook').addEventListener('click',()=>{
+ if(turn<11||money<25)return;
+ money-=25;ballInventory.push('rook');updateUI();openShop();
+});
+
+$('buyBlack').addEventListener('click',()=>{
+ if(turn<26||money<50)return;
+ money-=50;ballInventory.push('black');updateUI();openShop();
+});
+
+$('buyPurple').addEventListener('click',()=>{
+ if(turn<21||money<40)return;
+ money-=40;ballInventory.push('purple');updateUI();openShop();
+});
+
+$('skillUse').addEventListener('click',useAreaBreak);
+$('shopOpen').addEventListener('click',openShop);
+$('shopContinue').addEventListener('click',closeShop);
+$('restart').addEventListener('click',init);
+$('again').addEventListener('click',init);
+
+init();
+})();
+</script>
+</body>
+</html>
